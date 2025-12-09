@@ -72,6 +72,7 @@ class NotchViewModel: NSObject, ObservableObject {
     @Published var deviceNotchRect: CGRect = .zero
     @Published var screenRect: CGRect = .zero
     @Published var optionKeyPressed: Bool = false
+    @Published var commandKeyPressed: Bool = false
     @Published var notchVisible: Bool = true
 
     @PublishedPersist(key: "selectedLanguage", defaultValue: .system)
@@ -93,6 +94,7 @@ class NotchViewModel: NSObject, ObservableObject {
         openReason = .unknown
         status = .closed
         contentType = .normal
+        TrayDrop.shared.clearSelection()
     }
 
     func showSettings() {

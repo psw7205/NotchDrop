@@ -53,6 +53,14 @@ extension NotchViewModel {
             }
             .store(in: &cancellables)
 
+        events.commandKeyPress
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] input in
+                guard let self else { return }
+                commandKeyPressed = input
+            }
+            .store(in: &cancellables)
+
         events.mouseLocation
             .receive(on: DispatchQueue.main)
             .sink { [weak self] mouseLocation in

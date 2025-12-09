@@ -5,6 +5,7 @@
 //  Created by 秋星桥 on 2024/7/8.
 //
 
+import Combine
 import SwiftUI
 
 struct TrayView: View {
@@ -12,6 +13,12 @@ struct TrayView: View {
     @StateObject var tvm = TrayDrop.shared
 
     @State private var targeting = false
+
+    // Drag selection state
+    @State private var isDragSelecting = false
+    @State private var dragStartLocation: CGPoint = .zero
+    @State private var dragCurrentLocation: CGPoint = .zero
+    @State private var itemFrames: [TrayDrop.DropItem.ID: CGRect] = [:]
 
     var storageTime: String {
         switch tvm.selectedFileStorageTime {
@@ -36,7 +43,7 @@ struct TrayView: View {
     var body: some View {
         panel
             .onDrop(of: [.data], isTargeted: $targeting) { providers in
-                DispatchQueue.global().async { tvm.load(providers) }
+                DispatchQueue.global().async { tvm.loadFiltered(providers) }
                 return true
             }
     }
@@ -77,6 +84,14 @@ struct TrayView: View {
         ].joined(separator: " ")
     }
 
+    private var selectionRect: CGRect {
+        let minX = min(dragStartLocation.x, dragCurrentLocation.x)
+        let maxX = max(dragStartLocation.x, dragCurrentLocation.x)
+        let minY = min(dragStartLocation.y, dragCurrentLocation.y)
+        let maxY = max(dragStartLocation.y, dragCurrentLocation.y)
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+
     var content: some View {
         Group {
             if tvm.isEmpty {
@@ -87,18 +102,85 @@ struct TrayView: View {
                         .font(.system(.headline, design: .rounded))
                 }
             } else {
-                ScrollView(.horizontal) {
-                    HStack(spacing: vm.spacing) {
-                        ForEach(tvm.items) { item in
-                            DropItemView(item: item, vm: vm, tvm: tvm)
+                GeometryReader { geometry in
+                    ZStack {
+                        ScrollView(.horizontal) {
+                            HStack(spacing: vm.spacing) {
+                                ForEach(tvm.items) { item in
+                                    DropItemView(item: item, vm: vm, tvm: tvm)
+                                        .background(
+                                            GeometryReader { itemGeometry in
+                                                Color.clear
+                                                    .onAppear {
+                                                        let frame = itemGeometry.frame(in: .named("TrayContainer"))
+                                                        itemFrames[item.id] = frame
+                                                    }
+                                                    .onChange(of: itemGeometry.frame(in: .named("TrayContainer"))) { newFrame in
+                                                        itemFrames[item.id] = newFrame
+                                                    }
+                                            }
+                                        )
+                                }
+                            }
+                            .padding(vm.spacing)
+                        }
+                        .padding(-vm.spacing)
+                        .scrollIndicators(.never)
+
+                        // Selection box overlay
+                        if isDragSelecting {
+                            Rectangle()
+                                .fill(Color.accentColor.opacity(0.2))
+                                .overlay(
+                                    Rectangle()
+                                        .stroke(Color.accentColor, lineWidth: 1)
+                                )
+                                .frame(width: selectionRect.width, height: selectionRect.height)
+                                .position(
+                                    x: selectionRect.midX,
+                                    y: selectionRect.midY
+                                )
                         }
                     }
-                    .padding(vm.spacing)
+                    .coordinateSpace(name: "TrayContainer")
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 5)
+                            .onChanged { value in
+                                if !isDragSelecting {
+                                    isDragSelecting = true
+                                    dragStartLocation = value.startLocation
+                                    if !vm.commandKeyPressed {
+                                        tvm.clearSelection()
+                                    }
+                                }
+                                dragCurrentLocation = value.location
+                                updateSelectionFromDrag()
+                            }
+                            .onEnded { _ in
+                                isDragSelecting = false
+                            }
+                    )
+                    .onTapGesture {
+                        if !vm.commandKeyPressed {
+                            tvm.clearSelection()
+                        }
+                    }
                 }
-                .padding(-vm.spacing)
-                .scrollIndicators(.never)
             }
         }
+    }
+
+    private func updateSelectionFromDrag() {
+        var newSelection: Set<TrayDrop.DropItem.ID> = vm.commandKeyPressed ? tvm.selectedItems : []
+
+        for (itemId, frame) in itemFrames {
+            if selectionRect.intersects(frame) {
+                newSelection.insert(itemId)
+            }
+        }
+
+        tvm.selectItems(newSelection)
     }
 }
 

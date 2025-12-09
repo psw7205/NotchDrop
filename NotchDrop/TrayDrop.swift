@@ -57,6 +57,56 @@ class TrayDrop: ObservableObject {
 
     @Published var isLoading: Int = 0
 
+    // MARK: - Selection State
+
+    @Published var selectedItems: Set<DropItem.ID> = []
+
+    func isSelected(_ itemId: DropItem.ID) -> Bool {
+        selectedItems.contains(itemId)
+    }
+
+    func selectOnly(_ itemId: DropItem.ID) {
+        selectedItems = [itemId]
+    }
+
+    func toggleSelection(_ itemId: DropItem.ID) {
+        if selectedItems.contains(itemId) {
+            selectedItems.remove(itemId)
+        } else {
+            selectedItems.insert(itemId)
+        }
+    }
+
+    func addToSelection(_ itemId: DropItem.ID) {
+        selectedItems.insert(itemId)
+    }
+
+    func selectItems(_ itemIds: Set<DropItem.ID>) {
+        selectedItems = itemIds
+    }
+
+    func addItemsToSelection(_ itemIds: Set<DropItem.ID>) {
+        selectedItems.formUnion(itemIds)
+    }
+
+    func clearSelection() {
+        selectedItems.removeAll()
+    }
+
+    func deleteSelected() {
+        let itemsToDelete = items.filter { selectedItems.contains($0.id) }
+        for item in itemsToDelete {
+            delete(item: item)
+        }
+        selectedItems.removeAll()
+    }
+
+    var selectedDropItems: [DropItem] {
+        items.filter { selectedItems.contains($0.id) }
+    }
+
+    // MARK: - Loading
+
     func load(_ providers: [NSItemProvider]) {
         assert(!Thread.isMainThread)
         DispatchQueue.main.asyncAndWait { isLoading += 1 }
@@ -66,6 +116,48 @@ class TrayDrop: ObservableObject {
         }
         do {
             let items = try urls.map { try DropItem(url: $0) }
+            DispatchQueue.main.async {
+                items.forEach { self.items.updateOrInsert($0, at: 0) }
+                self.isLoading -= 1
+            }
+        } catch {
+            DispatchQueue.main.async {
+                self.isLoading -= 1
+                NSAlert.popError(error)
+            }
+        }
+    }
+
+    func loadFiltered(_ providers: [NSItemProvider]) {
+        assert(!Thread.isMainThread)
+        DispatchQueue.main.asyncAndWait { isLoading += 1 }
+        guard let urls = providers.interfaceConvert() else {
+            DispatchQueue.main.asyncAndWait { isLoading -= 1 }
+            return
+        }
+
+        // Filter out files that are already in the tray or are temp files from internal drag
+        let existingFileNames = Set(items.map { $0.fileName })
+        let filteredUrls = urls.filter { url in
+            let fileName = url.lastPathComponent
+            // Skip NSItemProvider temp files
+            if fileName.contains("NSItemProvider") && fileName.hasSuffix(".tmp") {
+                return false
+            }
+            // Skip files that came from our own storage
+            if url.path.contains(DropItem.mainDir) {
+                return false
+            }
+            return true
+        }
+
+        guard !filteredUrls.isEmpty else {
+            DispatchQueue.main.asyncAndWait { isLoading -= 1 }
+            return
+        }
+
+        do {
+            let items = try filteredUrls.map { try DropItem(url: $0) }
             DispatchQueue.main.async {
                 items.forEach { self.items.updateOrInsert($0, at: 0) }
                 self.isLoading -= 1

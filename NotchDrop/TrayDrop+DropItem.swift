@@ -64,6 +64,40 @@ extension TrayDrop.DropItem: Transferable {
     }
 }
 
+// MARK: - Multiple Items Transferable
+
+struct MultipleDropItems: Transferable, Hashable {
+    let items: [TrayDrop.DropItem]
+    private let id = UUID()
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+
+    static func == (lhs: MultipleDropItems, rhs: MultipleDropItems) -> Bool {
+        lhs.id == rhs.id
+    }
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(exportedContentType: .fileURL) { multipleItems in
+            let tempDir = temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+            for item in multipleItems.items {
+                let newPath = tempDir.appendingPathComponent(item.fileName)
+                try FileManager.default.copyItem(at: item.storageURL, to: newPath)
+            }
+
+            if multipleItems.items.count == 1 {
+                let singleFilePath = tempDir.appendingPathComponent(multipleItems.items[0].fileName)
+                return SentTransferredFile(singleFilePath, allowAccessingOriginalFile: true)
+            } else {
+                return SentTransferredFile(tempDir, allowAccessingOriginalFile: true)
+            }
+        }
+    }
+}
+
 extension TrayDrop.DropItem {
     static let mainDir = "CopiedItems"
 
